@@ -41,6 +41,7 @@ import hudson.plugins.git.extensions.impl.ChangelogToBranch;
 import hudson.plugins.git.extensions.impl.PathRestriction;
 import hudson.plugins.git.extensions.impl.LocalBranch;
 import hudson.plugins.git.extensions.impl.PreBuildMerge;
+import hudson.plugins.git.extensions.impl.PollExclusion;
 import hudson.plugins.git.opt.PreBuildMergeOptions;
 import hudson.plugins.git.util.Build;
 import hudson.plugins.git.util.*;
@@ -665,9 +666,17 @@ public class GitSCM extends GitSCMBackwardCompatibility {
     private PollingResult compareRemoteRevisionWithImpl(Job<?, ?> project, Launcher launcher, FilePath workspace, final @NonNull TaskListener listener) throws IOException, InterruptedException {
         // Poll for changes. Are there any unbuilt revisions that Hudson ought to build ?
 
+        if (getExtensions().get(PollExclusion.class) != null) {
+            for (UserRemoteConfig userRemoteConfig: userRemoteConfigs) {
+                    listener.getLogger().println("Polling disabled for " + userRemoteConfig.toString());
+            }
+            return NO_CHANGES;
+        }
+
         listener.getLogger().println("Using strategy: " + getBuildChooser().getDisplayName());
 
         final Run lastBuild = project.getLastBuild();
+
         if (lastBuild == null) {
             // If we've never been built before, well, gotta build!
             listener.getLogger().println("[poll] No previous build, so forcing an initial build.");
@@ -684,7 +693,7 @@ public class GitSCM extends GitSCMBackwardCompatibility {
         final String singleBranch = getSingleBranch(pollEnv);
 
         if (!requiresWorkspaceForPolling(pollEnv)) {
-
+            listener.getLogger().println("Workspace: not required");
             final EnvVars environment = project instanceof AbstractProject ? GitUtils.getPollEnvironment((AbstractProject) project, workspace, launcher, listener, false) : new EnvVars();
 
             GitClient git = createClient(listener, environment, project, Jenkins.getInstance(), null);
@@ -752,6 +761,8 @@ public class GitSCM extends GitSCMBackwardCompatibility {
             return NO_CHANGES;
         }
 
+        listener.getLogger().println("Workspace: required");
+
         final Node node = GitUtils.workspaceToNode(workspace);
         final EnvVars environment = project instanceof AbstractProject ? GitUtils.getPollEnvironment((AbstractProject) project, workspace, launcher, listener) : project.getEnvironment(node, listener);
 
@@ -759,6 +770,7 @@ public class GitSCM extends GitSCMBackwardCompatibility {
 
         // (Re)build if the working directory doesn't exist
         if (workingDirectory == null || !workingDirectory.exists()) {
+            listener.getLogger().println("Workspace missing: Building");
             return BUILD_NOW;
         }
 
